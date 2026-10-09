@@ -309,6 +309,57 @@ class GPUMatrixUtility(object):
             ldc=ldc,
             )
 
+    @staticmethod
+    def c_dgemm_strided_batched(
+        *,
+        transa: bool,
+        transb: bool,
+        m,
+        n,
+        k,
+        alpha,
+        a,
+        lda,
+        stride_a,
+        b,
+        ldb,
+        stride_b,
+        beta,
+        c,
+        ldc,
+        stride_c,
+        batch_count,
+        ):
+
+        alpha = np.array(
+            alpha,
+            dtype=np.double,
+            )
+        beta = np.array(
+            beta,
+            dtype=np.double,
+            )
+
+        cublas.dgemm_strided_batched(
+            handle=cublas_handle,
+            transa=cublas.Operation.T if transb else cublas.Operation.N,
+            transb=cublas.Operation.T if transa else cublas.Operation.N,
+            m=n,
+            n=m,
+            k=k,
+            alpha=alpha.ctypes.data,
+            a=int(b.pointer),
+            lda=ldb,
+            stride_a=stride_b * ctypes.sizeof(ctypes.c_double),
+            b=int(a.pointer),
+            ldb=lda,
+            stride_b=stride_a * ctypes.sizeof(ctypes.c_double),
+            beta=beta.ctypes.data,
+            c=int(c.pointer),
+            ldc=ldc,
+            stride_c=stride_c * ctypes.sizeof(ctypes.c_double),
+            batch_count=batch_count,
+            )
 
     @staticmethod
     def eigh(
