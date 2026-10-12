@@ -32,6 +32,9 @@ class MP2KernelHelper:
     make_pair_amplitudes(i, j, nocc, nvir, eps_ptr, pair_mo_ints_ptr, pair_amplitudes_ptr, stream=0, synchronize=False)
         Compute MP2 amplitudes for a given i, j (occupied) integral pair:
             amplitudes[a, b] = (i a | j b) / (eps[i] + eps[j] - eps[a] - eps[b])
+
+    general_transpose(input, output, nrows, ncols)
+        custom transpose for concatenedated matricies (row-major format) using grid stride loop
     """
 
     _SRC = r'''
@@ -54,6 +57,23 @@ class MP2KernelHelper:
             pair_amplitudes[rel_a * nvir + rel_b] = numerator * (fabs(denominator) < 1e-20 ? 1e20 : 1.0 / denominator);
         }
     }
+
+    extern "C" __global__
+    void general_transpose(
+        const float* input,
+        float* output,
+        long long rows,
+        long long cols
+    ) {
+        long long i = (long long)threadIdx.x + blockIdx.x * blockDim.x;
+        long long j = (long long)threadIdx.y + blockIdx.y * blockDim.y;
+    
+        long long offset = (long long)blockIdx.z * rows * cols;
+    
+        if (i < rows && j < cols) {
+            output[offset + j * rows + i] = input[offset + i * cols + j];
+        }
+    }
     '''
 
     def __init__(self, device_id=0, threads_per_block=256, gpu_arch=None):
@@ -64,9 +84,11 @@ class MP2KernelHelper:
         self._dev = None
         self._ctx = None
         self._module = None
+        
 
         # Function signatures get stored here
         self._func_make_pair_amplitudes = None
+        self._func_general_transpose = None
 
         self._init_cuda()
 
@@ -174,6 +196,10 @@ class MP2KernelHelper:
             driver.cuModuleGetFunction(self._module, b"make_pair_amplitudes")
         )
 
+        self._func_general_transpose = self._check_driver(
+            driver.cuModuleGetFunction(self._module, b"general_transpose")
+        )
+
         nvrtc.nvrtcDestroyProgram(prog)
 
     def close(self):
@@ -218,6 +244,10 @@ class MP2KernelHelper:
         )
         return holders, params
 
+    def get_mem_info(self):
+        _, free_bytes, total_bytes = driver.cudaMemGetInfo()
+        return free_bytes, total_bytes
+
     # Python wrappers to functions calling the custom kernels
     def make_pair_amplitudes(self, *, i, j, nocc, nvir, eps_ptr, pair_mo_ints_ptr, pair_amplitudes_ptr, stream=0, synchronize=False):
         """
@@ -260,3 +290,41 @@ class MP2KernelHelper:
         if synchronize:
             self._check_driver(driver.cuCtxSynchronize())
 
+    def general_transpose(self, *, input_ptr, output_ptr, nrows, ncols, batch_size, stream=0, synchronize=False):
+        """
+        Launch:
+            output[offset + j * rows + i] = input[offset + i * cols + j];
+
+            where offset governs a given matrix's batch index
+
+        concatenated matricies are assumed to be flattened row-major device buffers:
+        - input_ptr: shape (nrows, ncols)
+        - input_ptr: shape (nvir, nvir)
+        """
+        nrows = self._as_count(nrows)
+        ncols = self._as_count(ncols)
+        input_arg = self._as_device_ptr(input_ptr)
+        output_arg = self._as_device_ptr(output_ptr)
+
+        _, params = self._kernel_params(
+            nrows, ncols, input_arg, output_arg
+        )
+
+        # 2D block: per-dimension thread count must satisfy block_xy^2 <= 1024 (CUDA max threads/block).
+        block_xy = min(32, self.threads_per_block)
+        blocks_x = (nrows_arg.value + block_xy - 1) // block_xy
+        blocks_y = (ncols_arg.value + block_xy - 1) // block_xy
+
+        self._check_driver(
+            driver.cuLaunchKernel(
+                self._func_general_transpose,
+                blocks_x, blocks_y, self._as_count(batch_size),
+                block_xy, block_xy, 1,
+                0,
+                self._as_stream(stream),
+                params,
+                0,
+            )
+        )
+        if synchronize:
+            self._check_driver(driver.cuCtxSynchronize())

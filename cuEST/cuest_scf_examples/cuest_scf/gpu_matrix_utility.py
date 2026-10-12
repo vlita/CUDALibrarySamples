@@ -103,6 +103,7 @@ class GPUMatrixUtility(object):
         y,
         offy=0,
         incy=1,
+        raw_ptr=0,
         ):
     
         if n is None:
@@ -112,13 +113,20 @@ class GPUMatrixUtility(object):
         assert offy + (n - 1) * incy < y.size
     
         result = np.empty(1, dtype=np.double)
+
+        if raw_ptr:
+            x_arg = x
+            y_arg = y 
+        else:
+            x_arg = int(x.pointer) + offx * ctypes.sizeof(ctypes.c_double)
+            y_arg = int(y.pointer) + offy * ctypes.sizeof(ctypes.c_double)
     
         cublas.ddot(
             handle=cublas_handle,
             n=n,
-            x=int(x.pointer) + offx * ctypes.sizeof(ctypes.c_double),
+            x=x_arg,
             incx=incx,
-            y=int(y.pointer) + offy * ctypes.sizeof(ctypes.c_double),
+            y=y_arg,
             incy=incy,
             result=result.ctypes.data,
             )
