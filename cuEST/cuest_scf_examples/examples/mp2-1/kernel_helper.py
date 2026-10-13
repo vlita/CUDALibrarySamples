@@ -74,6 +74,28 @@ class MP2KernelHelper:
             output[offset + j * rows + i] = input[offset + i * cols + j];
         }
     }
+
+    extern "C" __global__
+    void pair_amplitudes_batched(
+        long long i,
+        long long j_start,
+        long long nocc,
+        long long nvir,
+        const double* pair_mo_ints_batched,
+        const double* eps,
+        double* pair_amplitudes_batched
+    ) {
+        long long rel_a = (long long) blockIdx.x * blockDim.x + threadIdx.x;
+        long long rel_b = (long long) blockIdx.y * blockDim.y + threadIdx.y;
+        long long rel_c = (long long)blockIdx.z; // determined at kernel launch by size of iter_batch_count
+        
+        long long batch_start = rel_c * nvir * nvir;
+        if (rel_a < nvir && rel_b < nvir && rel_c < batch_size) {
+            double denominator = eps[i] + eps[j_start + rel_c] - eps[rel_a + nocc] - eps[rel_b + nocc];
+            double numerator = pair_mo_ints_batched[batch_start + rel_a * nvir + rel_b];
+            pair_amplitudes_batched[batch_start + rel_a * nvir + rel_b] = numerator * (fabs(denominator) < 1e-20 ? 1e20 : 1.0 / denominator);
+        }
+    }
     '''
 
     def __init__(self, device_id=0, threads_per_block=256, gpu_arch=None):
@@ -89,6 +111,7 @@ class MP2KernelHelper:
         # Function signatures get stored here
         self._func_make_pair_amplitudes = None
         self._func_general_transpose = None
+        self._func_pair_amplitudes_batched = None
 
         self._init_cuda()
 
@@ -199,7 +222,11 @@ class MP2KernelHelper:
         self._func_general_transpose = self._check_driver(
             driver.cuModuleGetFunction(self._module, b"general_transpose")
         )
-
+        
+        self._func_make_pair_amplitudes = self._check_driver(
+            driver.cuModuleGetFunction(self._module, b"pair_amplitudes_batched")
+        )
+        
         nvrtc.nvrtcDestroyProgram(prog)
 
     def close(self):
@@ -318,6 +345,49 @@ class MP2KernelHelper:
         self._check_driver(
             driver.cuLaunchKernel(
                 self._func_general_transpose,
+                blocks_x, blocks_y, self._as_count(batch_size),
+                block_xy, block_xy, 1,
+                0,
+                self._as_stream(stream),
+                params,
+                0,
+            )
+        )
+        if synchronize:
+            self._check_driver(driver.cuCtxSynchronize())
+
+    def pair_amplitudes_batched(self, *, i, j_start, nocc, nvir, batch_size, pair_mo_ints_batched_ptr, eps_ptr, pair_amplitudes_batched_ptr, stream=0, synchronize=False):
+
+        """
+        Launch:
+            pair_amplitudes[a, b, j1:j2] = (i a | j1:j2 b) / (eps[i] + eps[j1:j2] - eps[a] - eps[b])
+        where j1:j2 denote the range of matricies to be processed in the current batch 
+        
+        concatenated matricies are assumed to be flattened row-major device buffers:
+        - eps_ptr: shape (nmo,)
+        - pair_mo_ints_ptr: shape (nvir, nvir, batch_size)
+        - pair_amplitudes_ptr: shape (nvir, nvir, batch_size)
+        """
+        i_arg = self._as_count(i)
+        j_arg = self._as_count(j_start)
+        nocc_arg = self._as_count(nocc)
+        nvir_arg = self._as_count(nvir)
+        eps_arg = self._as_device_ptr(eps_ptr)
+        pair_mo_ints_arg = self._as_device_ptr(pair_mo_ints_batched_ptr)
+        pair_amplitudes_arg = self._as_device_ptr(pair_amplitudes_batched_ptr)
+
+        _, params = self._kernel_params(
+            i_arg, j_arg, nocc_arg, nvir_arg, pair_mo_ints_arg, eps_arg, pair_amplitudes_arg
+        )
+        
+        # 2D block: per-dimension thread count must satisfy block_xy^2 <= 1024 (CUDA max threads/block).
+        block_xy = min(32, self.threads_per_block)
+        blocks_x = (nrows_arg.value + block_xy - 1) // block_xy
+        blocks_y = (ncols_arg.value + block_xy - 1) // block_xy
+
+        self._check_driver(
+            driver.cuLaunchKernel(
+                self._func_pair_amplitudes_batched,
                 blocks_x, blocks_y, self._as_count(batch_size),
                 block_xy, block_xy, 1,
                 0,

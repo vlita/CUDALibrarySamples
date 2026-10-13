@@ -97,7 +97,7 @@ def compute_mp2_energy(
 
 
     C = rhf.tensors['C']
-    eps = rhf.tensors['eps']
+    eps = rhf.tensors['eps'] # orbital eigenvals in ascending order
     nocc = rhf.sizes['nocc']
     nvir = rhf.sizes['nvir']
     naux = ri_auxiliary.nao
@@ -142,8 +142,8 @@ def compute_mp2_energy(
     size_in_bytes = 8 * nvir * nvir * batch_count
     
     pair_mo_ints_ptr = CudaUtility.cuda_malloc(size_in_bytes)
-    transposed_pair_mo_ints_ptr = CudaUtility.cuda_malloc(8 * nvir * nvir * batch_count)
-    pair_amplitudes_ptr = CudaUtility.cuda_malloc(8 * nvir * nvir * batch_count)
+    transposed_pair_mo_ints_ptr = CudaUtility.cuda_malloc(size_in_bytes)
+    pair_amplitudes_ptr = CudaUtility.cuda_malloc(size_in_bytes)
 
     # CudaUtility.cuda_zero_memory(pair_mo_ints_ptr, size_in_bytes)
     # CudaUtility.cuda_zero_memory(transposed_pair_mo_ints_ptr, size_in_bytes)
@@ -160,7 +160,9 @@ def compute_mp2_energy(
             # => (ia|jb) = sum_A B[A,i,a] * B[A,j,b]
 
             a_ptr = B_ia.pointer + i * nvir
-            b_ptr = B_ia.pointer + batch_count * nvir
+            b_ptr = B_ia.pointer + j * batch_count * nvir
+            iter_batch_count = min(batch_count, stride - j * batch_count)
+            batches_processed = 
             
             cuest_scf.GPUMatrixUtility.c_dgemm_strided_batched(
                 transa=True,
@@ -179,7 +181,7 @@ def compute_mp2_energy(
                 c=pair_mo_ints,
                 ldc=nvir,
                 stride_c=nvir*nvir,
-                batch_count=batch_count,
+                batch_count=iter_batch_count,
                 )
 
             # => (ia|jb) -> (ib|ja) <= #
@@ -189,17 +191,25 @@ def compute_mp2_energy(
                 output_ptr=transposed_pair_mo_ints_ptr,
                 nrows=nvir,
                 ncols=nvir,
-                batch_size=batch_count,
+                batch_size=iter_batch_count,
                 )
 
             # => T[i, j, a, b] = (i a | j b) / (eps[i] + eps[j] - eps[a] - eps[b]) <= #
 
-            kernel_helper.make_pair_amplitudes_block(
+            kernel_helper.pair_amplitudes_batched(
+                i=i, 
+                j_start=j*batch_count, 
+                nocc=nocc, 
+                nvir=nvir, 
+                batch_size=iter_batch_count, 
+                pair_mo_ints_batched_ptr=pair_mo_ints_ptr, 
+                eps_ptr=eps.pointer, 
+                pair_amplitudes_batched_ptr=pair_amplitudes_ptr,
                 )
 
             # ddot will work on arbitrary row-major buffers (w/ raw_ptr True)
             iajb_term = kernel_helper.ddot(
-                n=nvir*nvir*batch_count,
+                n=nvir*nvir*iter_batch_count,
                 x=pair_mo_ints,
                 offx=0,
                 incx=1,
@@ -210,7 +220,7 @@ def compute_mp2_energy(
             )
 
             ibja_term = cuest_scf.GPUMatrixUtility.ddot(
-                n=nvir*nvir*batch_count,
+                n=nvir*nvir*iter_batch_count,
                 x=transposed_pair_mo_ints,
                 offx=0,
                 incx=1,
