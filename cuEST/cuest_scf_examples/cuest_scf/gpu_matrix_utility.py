@@ -109,17 +109,21 @@ class GPUMatrixUtility(object):
         if n is None:
             n = x.size
     
-        assert offx + (n - 1) * incx < x.size
-        assert offy + (n - 1) * incy < y.size
-    
         result = np.empty(1, dtype=np.double)
 
         if raw_ptr:
             x_arg = x
             y_arg = y 
+
+            assert offx + (n - 1) * incx < n
+            assert offy + (n - 1) * incy < n
+
         else:
             x_arg = int(x.pointer) + offx * ctypes.sizeof(ctypes.c_double)
             y_arg = int(y.pointer) + offy * ctypes.sizeof(ctypes.c_double)
+
+            assert offx + (n - 1) * incx < x.size
+            assert offy + (n - 1) * incy < y.size
     
         cublas.ddot(
             handle=cublas_handle,
@@ -337,6 +341,7 @@ class GPUMatrixUtility(object):
         ldc,
         stride_c,
         batch_count,
+	raw_ptr=0,
         ):
 
         alpha = np.array(
@@ -347,6 +352,15 @@ class GPUMatrixUtility(object):
             beta,
             dtype=np.double,
             )
+	
+        if (raw_ptr):
+            a_arg = a
+            b_arg = b
+            c_arg = c
+        else:
+            a_arg = int(a.pointer)
+            b_arg = int(b.pointer)	
+            c_arg = int(c.pointer)
 
         cublas.dgemm_strided_batched(
             handle=cublas_handle,
@@ -356,14 +370,14 @@ class GPUMatrixUtility(object):
             n=m,
             k=k,
             alpha=alpha.ctypes.data,
-            a=int(b.pointer),
+            a=b_arg,
             lda=ldb,
             stride_a=stride_b * ctypes.sizeof(ctypes.c_double),
-            b=int(a.pointer),
+            b=a_arg,
             ldb=lda,
             stride_b=stride_a * ctypes.sizeof(ctypes.c_double),
             beta=beta.ctypes.data,
-            c=int(c.pointer),
+            c=c_arg,
             ldc=ldc,
             stride_c=stride_c * ctypes.sizeof(ctypes.c_double),
             batch_count=batch_count,

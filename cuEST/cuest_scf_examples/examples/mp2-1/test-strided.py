@@ -32,7 +32,7 @@ import numpy as np
 
 from cuest_mo_int_helper import CuestMOIntegralHelper
 from kernel_helper import MP2KernelHelper
-from .cuda_utility import CudaUtility
+from cuest_scf.cuda_utility import CudaUtility
 
 kernel_helper = MP2KernelHelper()
 
@@ -162,7 +162,6 @@ def compute_mp2_energy(
             a_ptr = B_ia.pointer + i * nvir
             b_ptr = B_ia.pointer + j * batch_count * nvir
             iter_batch_count = min(batch_count, stride - j * batch_count)
-            batches_processed = 
             
             cuest_scf.GPUMatrixUtility.c_dgemm_strided_batched(
                 transa=True,
@@ -178,10 +177,11 @@ def compute_mp2_energy(
                 ldb=nocc*nvir,
                 stride_b=nvir,
                 beta=0.0,
-                c=pair_mo_ints,
+                c=pair_mo_ints_ptr,
                 ldc=nvir,
                 stride_c=nvir*nvir,
                 batch_count=iter_batch_count,
+		raw_ptr=1,
                 )
 
             # => (ia|jb) -> (ib|ja) <= #
@@ -208,12 +208,12 @@ def compute_mp2_energy(
                 )
 
             # ddot will work on arbitrary row-major buffers (w/ raw_ptr True)
-            iajb_term = kernel_helper.ddot(
+            iajb_term = cuest_scf.GPUMatrixUtility.ddot(
                 n=nvir*nvir*iter_batch_count,
-                x=pair_mo_ints,
+                x=pair_mo_ints_ptr,
                 offx=0,
                 incx=1,
-                y=pair_amplitudes,
+                y=pair_amplitudes_ptr,
                 offy=0,
                 incy=1,
                 raw_ptr=1,
@@ -221,10 +221,10 @@ def compute_mp2_energy(
 
             ibja_term = cuest_scf.GPUMatrixUtility.ddot(
                 n=nvir*nvir*iter_batch_count,
-                x=transposed_pair_mo_ints,
+                x=transposed_pair_mo_ints_ptr,
                 offx=0,
                 incx=1,
-                y=pair_amplitudes,
+                y=pair_amplitudes_ptr,
                 offy=0,
                 incy=1,
                 raw_ptr=1,

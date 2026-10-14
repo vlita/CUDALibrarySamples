@@ -90,7 +90,7 @@ class MP2KernelHelper:
         long long rel_c = (long long)blockIdx.z; // determined at kernel launch by size of iter_batch_count
         
         long long batch_start = rel_c * nvir * nvir;
-        if (rel_a < nvir && rel_b < nvir && rel_c < batch_size) {
+        if (rel_a < nvir && rel_b < nvir && rel_c < gridDim.z) {
             double denominator = eps[i] + eps[j_start + rel_c] - eps[rel_a + nocc] - eps[rel_b + nocc];
             double numerator = pair_mo_ints_batched[batch_start + rel_a * nvir + rel_b];
             pair_amplitudes_batched[batch_start + rel_a * nvir + rel_b] = numerator * (fabs(denominator) < 1e-20 ? 1e20 : 1.0 / denominator);
@@ -223,7 +223,7 @@ class MP2KernelHelper:
             driver.cuModuleGetFunction(self._module, b"general_transpose")
         )
         
-        self._func_make_pair_amplitudes = self._check_driver(
+        self._func_pair_amplitudes_batched = self._check_driver(
             driver.cuModuleGetFunction(self._module, b"pair_amplitudes_batched")
         )
         
@@ -272,7 +272,7 @@ class MP2KernelHelper:
         return holders, params
 
     def get_mem_info(self):
-        _, free_bytes, total_bytes = driver.cudaMemGetInfo()
+        _, free_bytes, total_bytes = driver.cuMemGetInfo()
         return free_bytes, total_bytes
 
     # Python wrappers to functions calling the custom kernels
@@ -328,13 +328,13 @@ class MP2KernelHelper:
         - input_ptr: shape (nrows, ncols)
         - input_ptr: shape (nvir, nvir)
         """
-        nrows = self._as_count(nrows)
-        ncols = self._as_count(ncols)
+        nrows_arg = self._as_count(nrows)
+        ncols_arg = self._as_count(ncols)
         input_arg = self._as_device_ptr(input_ptr)
         output_arg = self._as_device_ptr(output_ptr)
 
         _, params = self._kernel_params(
-            nrows, ncols, input_arg, output_arg
+            nrows_arg, ncols_arg, input_arg, output_arg
         )
 
         # 2D block: per-dimension thread count must satisfy block_xy^2 <= 1024 (CUDA max threads/block).
@@ -345,7 +345,7 @@ class MP2KernelHelper:
         self._check_driver(
             driver.cuLaunchKernel(
                 self._func_general_transpose,
-                blocks_x, blocks_y, self._as_count(batch_size),
+                blocks_x, blocks_y, int(batch_size),
                 block_xy, block_xy, 1,
                 0,
                 self._as_stream(stream),
@@ -382,13 +382,13 @@ class MP2KernelHelper:
         
         # 2D block: per-dimension thread count must satisfy block_xy^2 <= 1024 (CUDA max threads/block).
         block_xy = min(32, self.threads_per_block)
-        blocks_x = (nrows_arg.value + block_xy - 1) // block_xy
-        blocks_y = (ncols_arg.value + block_xy - 1) // block_xy
+        blocks_x = (nvir_arg.value + block_xy - 1) // block_xy
+        blocks_y = (nvir_arg.value + block_xy - 1) // block_xy
 
         self._check_driver(
             driver.cuLaunchKernel(
                 self._func_pair_amplitudes_batched,
-                blocks_x, blocks_y, self._as_count(batch_size),
+                blocks_x, blocks_y, int(batch_size),
                 block_xy, block_xy, 1,
                 0,
                 self._as_stream(stream),
