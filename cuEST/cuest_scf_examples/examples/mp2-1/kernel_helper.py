@@ -334,7 +334,7 @@ class MP2KernelHelper:
         output_arg = self._as_device_ptr(output_ptr)
 
         _, params = self._kernel_params(
-            nrows_arg, ncols_arg, input_arg, output_arg
+            input_arg, output_arg, nrows_arg, ncols_arg
         )
 
         # 2D block: per-dimension thread count must satisfy block_xy^2 <= 1024 (CUDA max threads/block).
