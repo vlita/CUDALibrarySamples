@@ -108,29 +108,26 @@ class GPUMatrixUtility(object):
     
         if n is None:
             n = x.size
+
+        if hasattr(x, 'size') and hasattr(y, 'size'):
+            assert offx + (n - 1) * incx < x.size
+            assert offy + (n - 1) * incy < y.size
     
         result = np.empty(1, dtype=np.double)
 
         if raw_ptr:
             x_arg = x
-            y_arg = y 
-
-            assert offx + (n - 1) * incx < n
-            assert offy + (n - 1) * incy < n
-
+            y_arg = y
         else:
-            x_arg = int(x.pointer) + offx * ctypes.sizeof(ctypes.c_double)
-            y_arg = int(y.pointer) + offy * ctypes.sizeof(ctypes.c_double)
-
-            assert offx + (n - 1) * incx < x.size
-            assert offy + (n - 1) * incy < y.size
+            x_arg = int(x.pointer) 
+            y_arg = int(y.pointer)
     
         cublas.ddot(
             handle=cublas_handle,
             n=n,
-            x=x_arg,
+            x=x_arg + offx * ctypes.sizeof(ctypes.c_double),
             incx=incx,
-            y=y_arg,
+            y=y_arg + offy * ctypes.sizeof(ctypes.c_double),
             incy=incy,
             result=result.ctypes.data,
             )
@@ -370,16 +367,16 @@ class GPUMatrixUtility(object):
             n=m,
             k=k,
             alpha=alpha.ctypes.data,
-            a=b_arg,
+            a=b_arg*ctypes.sizeof(ctypes.c_double),
             lda=ldb,
-            stride_a=stride_b * ctypes.sizeof(ctypes.c_double),
-            b=a_arg,
+            stride_a=stride_b,
+            b=a_arg*ctypes.sizeof(ctypes.c_double),
             ldb=lda,
-            stride_b=stride_a * ctypes.sizeof(ctypes.c_double),
+            stride_b=stride_a,
             beta=beta.ctypes.data,
-            c=c_arg,
+            c=c_arg*ctypes.sizeof(ctypes.c_double),
             ldc=ldc,
-            stride_c=stride_c * ctypes.sizeof(ctypes.c_double),
+            stride_c=stride_c,
             batch_count=batch_count,
             )
 

@@ -60,8 +60,8 @@ class MP2KernelHelper:
 
     extern "C" __global__
     void general_transpose(
-        const float* input,
-        float* output,
+        const double* input,
+        double* output,
         long long rows,
         long long cols
     ) {

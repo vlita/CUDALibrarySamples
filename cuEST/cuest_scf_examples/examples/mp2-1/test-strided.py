@@ -133,7 +133,7 @@ def compute_mp2_energy(
 
     # => per-pair scratch space <= #
     free, total = kernel_helper.get_mem_info()
-    block_total = ((free * 0.8) // 3) // (8 * nvir * nvir)
+    block_total = int((free * 0.8) // 3) // (8 * nvir * nvir)
     batch_count = block_total if block_total < nocc else nocc
 
     print(f"free GPU memory: {free / 1024**3:.2f} GiB")
@@ -161,7 +161,7 @@ def compute_mp2_energy(
 
             a_ptr = B_ia.pointer + i * nvir
             b_ptr = B_ia.pointer + j * batch_count * nvir
-            iter_batch_count = min(batch_count, stride - j * batch_count)
+            iter_batch_count = min(batch_count, nocc - j * batch_count)
             
             cuest_scf.GPUMatrixUtility.c_dgemm_strided_batched(
                 transa=True,
