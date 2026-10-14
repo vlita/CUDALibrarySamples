@@ -109,18 +109,18 @@ class GPUMatrixUtility(object):
         if n is None:
             n = x.size
 
-        if hasattr(x, 'size') and hasattr(y, 'size'):
-            assert offx + (n - 1) * incx < x.size
-            assert offy + (n - 1) * incy < y.size
-    
         result = np.empty(1, dtype=np.double)
 
         if raw_ptr:
             x_arg = x
             y_arg = y
+            
         else:
             x_arg = int(x.pointer) 
             y_arg = int(y.pointer)
+            
+            assert offx + (n - 1) * incx < x.size
+            assert offy + (n - 1) * incy < y.size
     
         cublas.ddot(
             handle=cublas_handle,
