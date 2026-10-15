@@ -114,6 +114,9 @@ def compute_mp2_energy(
     nvir = rhf.sizes['nvir']
     naux = ri_auxiliary.nao
 
+    nocc2 = nocc * nocc
+    nvir2 = nvir * nvir
+
     start_part_timer('mo_integrals', stream_handle=rhf.cuest_handle.stream_handle)
 
     mo_integral_helper = CuestMOIntegralHelper(
@@ -151,11 +154,11 @@ def compute_mp2_energy(
     start_part_timer('scratch_alloc')
 
     free, total = kernel_helper.get_mem_info()
-    block_total = int((free * 0.8) // 3) // (8 * nvir * nvir)
-    batch_count = block_total if block_total < nocc * nocc else nocc * nocc
+    block_total = int((free * 0.8) // 3) // (8 * nvir2)
+    batch_count = block_total if block_total < nocc2 else nocc2
 `
     print(f"free GPU memory: {free / 1024**3:.2f} GiB")
-    print(f"batching {int(batch_count)}/{nocc * nocc} total DGEMMs")
+    print(f"batching {int(batch_count)}/{nocc2} total DGEMMs")
 
     size_in_bytes = 8 * nvir * nvir * batch_count
     
@@ -179,7 +182,7 @@ def compute_mp2_energy(
         # => (ia|jb) = sum_A B[A,i,a] * B[A,j,b]
 
         Bia_ptr = B_ia.pointer + i * batch_count * nvir * 8
-        iter_batch_count = min(batch_count, nocc * nocc - i * batch_count)
+        iter_batch_count = min(batch_count, nocc2 - i * batch_count)
 
         start_part_timer('gemm')
 
