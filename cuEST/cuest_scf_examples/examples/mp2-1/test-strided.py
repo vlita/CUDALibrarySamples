@@ -36,6 +36,18 @@ from cuest_scf.cuda_utility import CudaUtility
 
 kernel_helper = MP2KernelHelper()
 
+enable_part_timers = True
+
+timer = cuest_scf.timer.Timer()
+
+def start_part_timer(key, stream_handle=0):
+    if enable_part_timers:
+        timer.start(key=key, stream_handle=stream_handle)
+
+def stop_part_timer(key, stream_handle=0):
+    if enable_part_timers:
+        timer.stop(key=key, stream_handle=stream_handle)
+
 import os
 filedir = os.path.dirname(os.path.realpath(__file__))
 basisdir = os.path.join(filedir, '..', '..', 'data', 'gbs')
@@ -102,6 +114,8 @@ def compute_mp2_energy(
     nvir = rhf.sizes['nvir']
     naux = ri_auxiliary.nao
 
+    start_part_timer('mo_integrals', stream_handle=rhf.cuest_handle.stream_handle)
+
     mo_integral_helper = CuestMOIntegralHelper(
         cuest_handle=rhf.cuest_handle,
         molecule=rhf.molecule,
@@ -131,19 +145,25 @@ def compute_mp2_energy(
         out_mo_integrals=B_ia,
         )
 
+    stop_part_timer('mo_integrals', stream_handle=rhf.cuest_handle.stream_handle)
+
     # => per-pair scratch space <= #
+    start_part_timer('scratch_alloc')
+
     free, total = kernel_helper.get_mem_info()
     block_total = int((free * 0.8) // 3) // (8 * nvir * nvir)
     batch_count = block_total if block_total < nocc else nocc
 
     print(f"free GPU memory: {free / 1024**3:.2f} GiB")
-    print(f"GEMM batch count: {int(batch_count)}")
+    print(f"batching {int(batch_count)}/{nocc} total inner-loop DGEMMs")
 
     size_in_bytes = 8 * nvir * nvir * batch_count
     
     pair_mo_ints_ptr = CudaUtility.cuda_malloc(size_in_bytes)
     transposed_pair_mo_ints_ptr = CudaUtility.cuda_malloc(size_in_bytes)
     pair_amplitudes_ptr = CudaUtility.cuda_malloc(size_in_bytes)
+
+    stop_part_timer('scratch_alloc')
 
     # CudaUtility.cuda_zero_memory(pair_mo_ints_ptr, size_in_bytes)
     # CudaUtility.cuda_zero_memory(transposed_pair_mo_ints_ptr, size_in_bytes)
@@ -162,7 +182,9 @@ def compute_mp2_energy(
             a_ptr = B_ia.pointer + i * nvir * 8
             b_ptr = B_ia.pointer + j * batch_count * nvir * 8 
             iter_batch_count = min(batch_count, nocc - j * batch_count)
-            
+
+            start_part_timer('gemm')
+
             cuest_scf.GPUMatrixUtility.c_dgemm_strided_batched(
                 transa=True,
                 transb=False,
@@ -184,7 +206,11 @@ def compute_mp2_energy(
 		raw_ptr=1,
                 )
 
+            stop_part_timer('gemm')
+
             # => (ia|jb) -> (ib|ja) <= #
+
+            start_part_timer('transpose')
 
             kernel_helper.general_transpose(
                 input_ptr=pair_mo_ints_ptr,
@@ -194,7 +220,11 @@ def compute_mp2_energy(
                 batch_size=iter_batch_count,
                 )
 
+            stop_part_timer('transpose')
+
             # => T[i, j, a, b] = (i a | j b) / (eps[i] + eps[j] - eps[a] - eps[b]) <= #
+
+            start_part_timer('pair_amplitudes')
 
             kernel_helper.pair_amplitudes_batched(
                 i=i, 
@@ -206,6 +236,10 @@ def compute_mp2_energy(
                 eps_ptr=eps.pointer, 
                 pair_amplitudes_batched_ptr=pair_amplitudes_ptr,
                 )
+
+            stop_part_timer('pair_amplitudes')
+
+            start_part_timer('ddot')
 
             # ddot will work on arbitrary row-major buffers (w/ raw_ptr True)
             iajb_term = cuest_scf.GPUMatrixUtility.ddot(
@@ -230,6 +264,8 @@ def compute_mp2_energy(
                 raw_ptr=1,
             )
 
+            stop_part_timer('ddot')
+
             mp2_os_energy += iajb_term
             mp2_ss_energy += iajb_term - ibja_term
             
@@ -240,12 +276,18 @@ def compute_mp2_energy(
     return mp2_os_energy, mp2_ss_energy
 
 
+timer.start(key='mp2_total')
+
 mp2_os_energy, mp2_ss_energy = compute_mp2_energy(
     rhf=rhf,
     ri_auxiliary=ri_auxiliary,
     ri_auxiliary_name=ri_auxiliary_name,
     integral_direct=True,
     )
+
+timer.stop(key='mp2_total')
+
+timer.print_out(header='MP2 Timing breakdown:')
 
 print(f'MP2 OS Energy:          {mp2_os_energy:24.16E}')
 print()

@@ -35,6 +35,18 @@ from kernel_helper import MP2KernelHelper
 
 kernel_helper = MP2KernelHelper()
 
+enable_part_timers = True
+
+timer = cuest_scf.timer.Timer()
+
+def start_part_timer(key, stream_handle=0):
+    if enable_part_timers:
+        timer.start(key=key, stream_handle=stream_handle)
+
+def stop_part_timer(key, stream_handle=0):
+    if enable_part_timers:
+        timer.stop(key=key, stream_handle=stream_handle)
+
 import os
 filedir = os.path.dirname(os.path.realpath(__file__))
 basisdir = os.path.join(filedir, '..', '..', 'data', 'gbs')
@@ -101,6 +113,8 @@ def compute_mp2_energy(
     nvir = rhf.sizes['nvir']
     naux = ri_auxiliary.nao
 
+    start_part_timer('mo_integrals', stream_handle=rhf.cuest_handle.stream_handle)
+
     mo_integral_helper = CuestMOIntegralHelper(
         cuest_handle=rhf.cuest_handle,
         molecule=rhf.molecule,
@@ -130,7 +144,11 @@ def compute_mp2_energy(
         out_mo_integrals=B_ia,
         )
 
+    stop_part_timer('mo_integrals', stream_handle=rhf.cuest_handle.stream_handle)
+
     # => per-pair scratch space <= #
+
+    start_part_timer('scratch_alloc')
 
     pair_mo_ints = cuest_scf.GPUMatrix(
         nrows=nvir,
@@ -143,12 +161,16 @@ def compute_mp2_energy(
         dtype=np.double,
         )
 
+    stop_part_timer('scratch_alloc')
+
     mp2_os_energy = 0.0
     mp2_ss_energy = 0.0
     for i in range(nocc):
         for j in range(i, nocc):
 
             # => (ia|jb) = sum_A B[A,i,a] * B[A,j,b]
+
+            start_part_timer('gemm')
 
             cuest_scf.GPUMatrixUtility.c_dgemm(
                 transa=True,
@@ -169,7 +191,11 @@ def compute_mp2_energy(
                 ldc=nvir,
                 )
 
+            stop_part_timer('gemm')
+
             # => (ia|jb) -> (ib|ja) <= #
+
+            start_part_timer('transpose')
 
             transposed_pair_mo_ints = cuest_scf.GPUMatrixUtility.dgeam(
                 transpose1=True,
@@ -180,7 +206,11 @@ def compute_mp2_energy(
                 mat2=pair_mo_ints,
                 )
 
+            stop_part_timer('transpose')
+
             # => T[i, j, a, b] = (i a | j b) / (eps[i] + eps[j] - eps[a] - eps[b]) <= #
+
+            start_part_timer('pair_amplitudes')
 
             kernel_helper.make_pair_amplitudes(
                 i=i,
@@ -191,6 +221,10 @@ def compute_mp2_energy(
                 pair_mo_ints_ptr=pair_mo_ints.pointer,
                 pair_amplitudes_ptr=pair_amplitudes.pointer,
                 )
+
+            stop_part_timer('pair_amplitudes')
+
+            start_part_timer('ddot')
 
             iajb_term = cuest_scf.GPUMatrixUtility.ddot(
                 n=nvir * nvir,
@@ -212,6 +246,8 @@ def compute_mp2_energy(
                 incy=1,
             )
 
+            stop_part_timer('ddot')
+
             pair_prefactor = 1.0 if i == j else 2.0
 
             mp2_os_energy += pair_prefactor * iajb_term
@@ -220,12 +256,18 @@ def compute_mp2_energy(
     return mp2_os_energy, mp2_ss_energy
 
 
+timer.start(key='mp2_total')
+
 mp2_os_energy, mp2_ss_energy = compute_mp2_energy(
     rhf=rhf,
     ri_auxiliary=ri_auxiliary,
     ri_auxiliary_name=ri_auxiliary_name,
     integral_direct=True,
     )
+
+timer.stop(key='mp2_total')
+
+timer.print_out(header='MP2 Timing breakdown:')
 
 print(f'MP2 OS Energy:          {mp2_os_energy:24.16E}')
 print()
