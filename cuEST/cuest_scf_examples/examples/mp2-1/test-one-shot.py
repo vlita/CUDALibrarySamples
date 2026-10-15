@@ -175,97 +175,97 @@ def compute_mp2_energy(
     mp2_os_energy = 0.0
     mp2_ss_energy = 0.0
     for i in range(stride):
-        
-            # => (ia|jb) = sum_A B[A,i,a] * B[A,j,b]
+    
+        # => (ia|jb) = sum_A B[A,i,a] * B[A,j,b]
 
-            Bia_ptr = B_ia.pointer + i * batch_count * nvir * 8
-            iter_batch_count = min(batch_count, nocc * nocc - i * batch_count)
+        Bia_ptr = B_ia.pointer + i * batch_count * nvir * 8
+        iter_batch_count = min(batch_count, nocc * nocc - i * batch_count)
 
-            start_part_timer('gemm')
+        start_part_timer('gemm')
 
-            cuest_scf.GPUMatrixUtility.c_dgemm_strided_batched(
-                transa=True,
-                transb=False,
-                m=nvir,
-                n=nvir,
-                k=naux,
-                alpha=1.0,
-                a=Bia_ptr,
-                lda=nocc*nvir,
-                stride_a=nvir,
-                b=Bia_ptr,
-                ldb=nocc*nvir,
-                stride_b=nvir,
-                beta=0.0,
-                c=pair_mo_ints_ptr,
-                ldc=nvir,
-                stride_c=nvir*nvir,
-                batch_count=iter_batch_count,
-        		raw_ptr=1,
-                )
-
-            stop_part_timer('gemm')
-
-            # => (ia|jb) -> (ib|ja) <= #
-
-            start_part_timer('transpose')
-
-            kernel_helper.general_transpose(
-                input_ptr=pair_mo_ints_ptr,
-                output_ptr=transposed_pair_mo_ints_ptr,
-                nrows=nvir,
-                ncols=nvir,
-                batch_size=iter_batch_count,
-                )
-
-            stop_part_timer('transpose')
-
-            # => T[i, j, a, b] = (i a | j b) / (eps[i] + eps[j] - eps[a] - eps[b]) <= #
-
-            start_part_timer('pair_amplitudes')
-
-            kernel_helper.pair_amplitudes_batched(
-                i=i, 
-                j_start=i*batch_count, 
-                nocc=nocc, 
-                nvir=nvir, 
-                batch_size=iter_batch_count, 
-                pair_mo_ints_batched_ptr=pair_mo_ints_ptr, 
-                eps_ptr=eps.pointer, 
-                pair_amplitudes_batched_ptr=pair_amplitudes_ptr,
-                )
-
-            stop_part_timer('pair_amplitudes')
-
-            start_part_timer('ddot')
-
-            # ddot will work on arbitrary row-major buffers (w/ raw_ptr True)
-            iajb_term = cuest_scf.GPUMatrixUtility.ddot(
-                n=nvir*nvir*iter_batch_count,
-                x=pair_mo_ints_ptr,
-                offx=0,
-                incx=1,
-                y=pair_amplitudes_ptr,
-                offy=0,
-                incy=1,
-                raw_ptr=1,
+        cuest_scf.GPUMatrixUtility.c_dgemm_strided_batched(
+            transa=True,
+            transb=False,
+            m=nvir,
+            n=nvir,
+            k=naux,
+            alpha=1.0,
+            a=Bia_ptr,
+            lda=nocc*nvir,
+            stride_a=nvir,
+            b=Bia_ptr,
+            ldb=nocc*nvir,
+            stride_b=nvir,
+            beta=0.0,
+            c=pair_mo_ints_ptr,
+            ldc=nvir,
+            stride_c=nvir*nvir,
+            batch_count=iter_batch_count,
+            raw_ptr=1,
             )
 
-            ibja_term = cuest_scf.GPUMatrixUtility.ddot(
-                n=nvir*nvir*iter_batch_count,
-                x=transposed_pair_mo_ints_ptr,
-                offx=0,
-                incx=1,
-                y=pair_amplitudes_ptr,
-                offy=0,
-                incy=1,
-                raw_ptr=1,
+        stop_part_timer('gemm')
+
+        # => (ia|jb) -> (ib|ja) <= #
+
+        start_part_timer('transpose')
+
+        kernel_helper.general_transpose(
+            input_ptr=pair_mo_ints_ptr,
+            output_ptr=transposed_pair_mo_ints_ptr,
+            nrows=nvir,
+            ncols=nvir,
+            batch_size=iter_batch_count,
             )
 
-            stop_part_timer('ddot')
+        stop_part_timer('transpose')
 
-            mp2_os_energy += iajb_term
-            mp2_ss_energy += iajb_term - ibja_term
+        # => T[i, j, a, b] = (i a | j b) / (eps[i] + eps[j] - eps[a] - eps[b]) <= #
+
+        start_part_timer('pair_amplitudes')
+
+        kernel_helper.pair_amplitudes_batched(
+            i=i, 
+            j_start=i*batch_count, 
+            nocc=nocc, 
+            nvir=nvir, 
+            batch_size=iter_batch_count, 
+            pair_mo_ints_batched_ptr=pair_mo_ints_ptr, 
+            eps_ptr=eps.pointer, 
+            pair_amplitudes_batched_ptr=pair_amplitudes_ptr,
+            )
+
+        stop_part_timer('pair_amplitudes')
+
+        start_part_timer('ddot')
+
+        # ddot will work on arbitrary row-major buffers (w/ raw_ptr True)
+        iajb_term = cuest_scf.GPUMatrixUtility.ddot(
+            n=nvir*nvir*iter_batch_count,
+            x=pair_mo_ints_ptr,
+            offx=0,
+            incx=1,
+            y=pair_amplitudes_ptr,
+            offy=0,
+            incy=1,
+            raw_ptr=1,
+        )
+
+        ibja_term = cuest_scf.GPUMatrixUtility.ddot(
+            n=nvir*nvir*iter_batch_count,
+            x=transposed_pair_mo_ints_ptr,
+            offx=0,
+            incx=1,
+            y=pair_amplitudes_ptr,
+            offy=0,
+            incy=1,
+            raw_ptr=1,
+        )
+
+        stop_part_timer('ddot')
+
+        mp2_os_energy += iajb_term
+        mp2_ss_energy += iajb_term - ibja_term
             
     CudaUtility.cuda_free(pointer=pair_mo_ints_ptr)
     CudaUtility.cuda_free(pointer=transposed_pair_mo_ints_ptr)
