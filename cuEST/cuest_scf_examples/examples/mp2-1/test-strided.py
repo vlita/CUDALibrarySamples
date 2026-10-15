@@ -159,8 +159,8 @@ def compute_mp2_energy(
 
             # => (ia|jb) = sum_A B[A,i,a] * B[A,j,b]
 
-            a_ptr = B_ia.pointer + i * nvir
-            b_ptr = B_ia.pointer + j * batch_count * nvir
+            a_ptr = B_ia.pointer + i * nvir * 8
+            b_ptr = B_ia.pointer + j * batch_count * nvir * 8 
             iter_batch_count = min(batch_count, nocc - j * batch_count)
             
             cuest_scf.GPUMatrixUtility.c_dgemm_strided_batched(
