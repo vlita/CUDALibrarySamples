@@ -57,7 +57,7 @@ cuest_handle = cuest_scf.CuestHandle()
 
 threshold_pq = 1.0E-18
 
-molecule = cuest_scf.Molecule.parse_from_xyz_file('ethanol.xyz')
+molecule = cuest_scf.Molecule.parse_from_xyz_file('water64.xyz')
 charge = 0
 
 primary_name = 'def2-svp'
@@ -93,6 +93,7 @@ rhf.solve()
 
 print(f'RHF Energy:             {rhf.compute_energy():24.16E}')
 
+print(f'\n=> MP2 Energy Calculation <=\n')
 
 # => MP2 Energy Calculation <= #
 
