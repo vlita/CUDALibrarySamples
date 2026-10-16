@@ -154,98 +154,92 @@ def compute_mp2_energy(
     start_part_timer('scratch_alloc')
 
     free, total = kernel_helper.get_mem_info()
-    block_total = int((free * 0.8) // 3) // (8 * nvir2)
-    batch_count = block_total if block_total < nocc2 else nocc2
+    
+    slices_possible = int((free * 0.8) // 3) // (8 * nvir2 * nocc)
+    slice_count = slices_possible if slices_possible < nocc else nocc
+    if slice_count == 0:
+        raise ValueError(f"Insufficient device memory for {3 * 8 * nvir2 * nocc / 1024**3:.2f} GiB scratch buffer")
 
     print(f"free GPU memory: {free / 1024**3:.2f} GiB")
-    print(f"batching {int(batch_count)}/{nocc2} total DGEMMs")
+    print(f"Performing (A|ia)(A|jb) in {slice_count} slice(s)")
 
-    size_in_bytes = 8 * nvir * nvir * batch_count
-    
-    pair_mo_ints_ptr = CudaUtility.cuda_malloc(size_in_bytes)
-    transposed_pair_mo_ints_ptr = CudaUtility.cuda_malloc(size_in_bytes)
+    size_in_bytes = 8 * nvir2 * nocc * slice_count
+    iajb_ptr = CudaUtility.cuda_malloc(size_in_bytes)
+    ibja_ptr = CudaUtility.cuda_malloc(size_in_bytes)
     pair_amplitudes_ptr = CudaUtility.cuda_malloc(size_in_bytes)
 
     stop_part_timer('scratch_alloc')
 
-    # CudaUtility.cuda_zero_memory(pair_mo_ints_ptr, size_in_bytes)
-    # CudaUtility.cuda_zero_memory(transposed_pair_mo_ints_ptr, size_in_bytes)
-    # CudaUtility.cuda_zero_memory(pair_amplitudes_ptr, size_in_bytes)
-
     # => loop sizing <= #
-    stride = (nocc * nocc + batch_count - 1) // batch_count
-    
+    stride = (nocc + slice_count - 1) // slice_count
+
     mp2_os_energy = 0.0
     mp2_ss_energy = 0.0
     for i in range(stride):
-    
-        # => (ia|jb) = sum_A B[A,i,a] * B[A,j,b]
 
-        Bia_ptr = B_ia.pointer + i * batch_count * nocc * nvir * 8
-        iter_batch_count = min(batch_count, nocc2 - i * batch_count)
+        # ==> (i a | j b)[ia_1 : ia_2, jb] = sum_A B[A, ia_1 : ia_2] * B[A, jb] <==
+
+        iter_slices = min(slice_count, nocc - i * slice_count)
 
         start_part_timer('gemm')
 
-        cuest_scf.GPUMatrixUtility.c_dgemm_strided_batched(
+        cuest_scf.GPUMatrixUtility.c_dgemm(
             transa=True,
             transb=False,
-            m=nvir,
-            n=nvir,
+            m=iter_slices*nvir,
+            n=nocc*nvir,
             k=naux,
             alpha=1.0,
-            a=Bia_ptr,
+            a=B_ia.pointer,
+            offa=i*slice_count*nvir,
             lda=nocc*nvir,
-            stride_a=nvir,
-            b=Bia_ptr,
+            b=B_ia.pointer,
+            offb=0,
             ldb=nocc*nvir,
-            stride_b=nvir,
             beta=0.0,
-            c=pair_mo_ints_ptr,
-            ldc=nvir,
-            stride_c=nvir*nvir,
-            batch_count=iter_batch_count,
+            c=iajb_ptr,
+            offc=0,
+            ldc=nocc*nvir,
             raw_ptr=1,
             )
 
         stop_part_timer('gemm')
 
-        # => (ia|jb) -> (ib|ja) <= #
-
-        start_part_timer('transpose')
-
-        kernel_helper.general_transpose(
-            input_ptr=pair_mo_ints_ptr,
-            output_ptr=transposed_pair_mo_ints_ptr,
-            nrows=nvir,
-            ncols=nvir,
-            batch_size=iter_batch_count,
-            )
-
-        stop_part_timer('transpose')
-
-        # => T[i, j, a, b] = (i a | j b) / (eps[i] + eps[j] - eps[a] - eps[b]) <= #
+        # ==> T[ia_1 : ia_2, jb] = (i a | j b)[ia_1 : ia_2, jb] / (eps[i] + eps[j] - eps[a] - eps[b]) <== #
 
         start_part_timer('pair_amplitudes')
 
-        kernel_helper.pair_amplitudes_batched(
-            i=i, 
-            j_start=i*batch_count, 
-            nocc=nocc, 
-            nvir=nvir, 
-            batch_size=iter_batch_count, 
-            pair_mo_ints_batched_ptr=pair_mo_ints_ptr, 
-            eps_ptr=eps.pointer, 
-            pair_amplitudes_batched_ptr=pair_amplitudes_ptr,
+        kernel_helper.pair_amplitudes_sliced(
+            i_start=i*slice_count,
+            nocc=nocc,
+            nvir=nvir,
+            batch_size=iter_slices*nocc,
+            iajb_slice_ptr=iajb_ptr,
+            eps_ptr=eps.pointer,
+            pair_amplitudes_slice_ptr=pair_amplitudes_ptr,
             )
 
         stop_part_timer('pair_amplitudes')
 
+        # => iajb_term = (i a | j b) * (i b | j a) / (eps[i] + eps[j] - eps[a] - eps[b]) <= #
+
+        start_part_timer('transpose')
+
+        kernel_helper.sliced_transpose(
+            input_ptr=iajb_ptr,
+            output_ptr=ibja_ptr,
+            nocc=nocc,
+            nvir=nvir,
+            batch_size=iter_slices*nocc,
+            )
+
+        stop_part_timer('transpose')
+
         start_part_timer('ddot')
 
-        # ddot will work on arbitrary row-major buffers (w/ raw_ptr True)
         iajb_term = cuest_scf.GPUMatrixUtility.ddot(
-            n=nvir*nvir*iter_batch_count,
-            x=pair_mo_ints_ptr,
+            n=iter_slices*nvir*nocc*nvir,
+            x=iajb_ptr,
             offx=0,
             incx=1,
             y=pair_amplitudes_ptr,
@@ -255,8 +249,8 @@ def compute_mp2_energy(
         )
 
         ibja_term = cuest_scf.GPUMatrixUtility.ddot(
-            n=nvir*nvir*iter_batch_count,
-            x=transposed_pair_mo_ints_ptr,
+            n=iter_slices*nvir*nocc*nvir,
+            x=ibja_ptr,
             offx=0,
             incx=1,
             y=pair_amplitudes_ptr,
@@ -269,9 +263,9 @@ def compute_mp2_energy(
 
         mp2_os_energy += iajb_term
         mp2_ss_energy += iajb_term - ibja_term
-            
-    CudaUtility.cuda_free(pointer=pair_mo_ints_ptr)
-    CudaUtility.cuda_free(pointer=transposed_pair_mo_ints_ptr)
+
+    CudaUtility.cuda_free(pointer=iajb_ptr)
+    CudaUtility.cuda_free(pointer=ibja_ptr)
     CudaUtility.cuda_free(pointer=pair_amplitudes_ptr)
 
     return mp2_os_energy, mp2_ss_energy

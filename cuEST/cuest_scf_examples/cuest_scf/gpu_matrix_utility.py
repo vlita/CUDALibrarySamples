@@ -290,8 +290,9 @@ class GPUMatrixUtility(object):
         c,
         offc,
         ldc,
+        raw_ptr=0,
         ):
- 
+
         alpha = np.array(
             alpha,
             dtype=np.double,
@@ -301,6 +302,15 @@ class GPUMatrixUtility(object):
             dtype=np.double,
             )
 
+        if raw_ptr:
+            a_arg = a
+            b_arg = b
+            c_arg = c
+        else:
+            a_arg = int(a.pointer)
+            b_arg = int(b.pointer)
+            c_arg = int(c.pointer)
+
         cublas.dgemm(
             handle=cublas_handle,
             transa=cublas.Operation.T if transb else cublas.Operation.N,
@@ -309,12 +319,12 @@ class GPUMatrixUtility(object):
             n=m,
             k=k,
             alpha=alpha.ctypes.data,
-            a=int(b.pointer) + offb * ctypes.sizeof(ctypes.c_double),
+            a=b_arg + offb * ctypes.sizeof(ctypes.c_double),
             lda=ldb,
-            b=int(a.pointer) + offa * ctypes.sizeof(ctypes.c_double),
+            b=a_arg + offa * ctypes.sizeof(ctypes.c_double),
             ldb=lda,
             beta=beta.ctypes.data,
-            c=int(c.pointer) + offc * ctypes.sizeof(ctypes.c_double),
+            c=c_arg + offc * ctypes.sizeof(ctypes.c_double),
             ldc=ldc,
             )
 

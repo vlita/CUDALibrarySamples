@@ -96,6 +96,48 @@ class MP2KernelHelper:
             pair_amplitudes_batched[batch_start + rel_a * nvir + rel_b] = numerator * (fabs(denominator) < 1e-20 ? 1e20 : 1.0 / denominator);
         }
     }
+
+    extern "C" __global__
+    void sliced_transpose(
+        const double* input,
+        double* output,
+        long long nocc,
+        long long nvir
+    ) {
+        long long rel_a = (long long) blockIdx.x * blockDim.x + threadIdx.x;
+        long long rel_b = (long long) blockIdx.y * blockDim.y + threadIdx.y;
+        long long rel_c = (long long)blockIdx.z;
+
+        long long ncols = nocc * nvir;
+        long long block_start = (rel_c / nocc) * nvir * ncols + (rel_c % nocc) * nvir;
+        if (rel_a < nvir && rel_b < nvir) {
+            output[block_start + rel_b * ncols + rel_a] = input[block_start + rel_a * ncols + rel_b];
+        }
+    }
+
+    extern "C" __global__
+    void pair_amplitudes_sliced(
+        long long i_start,
+        long long nocc,
+        long long nvir,
+        const double* iajb_slice,
+        const double* eps,
+        double* pair_amplitudes_slice
+    ) {
+        long long rel_a = (long long) blockIdx.x * blockDim.x + threadIdx.x;
+        long long rel_b = (long long) blockIdx.y * blockDim.y + threadIdx.y;
+        long long rel_c = (long long)blockIdx.z;
+
+        long long i = i_start + rel_c / nocc;
+        long long j = rel_c % nocc;
+        long long ncols = nocc * nvir;
+        long long block_start = (rel_c / nocc) * nvir * ncols + j * nvir;
+        if (rel_a < nvir && rel_b < nvir) {
+            double denominator = eps[i] + eps[j] - eps[rel_a + nocc] - eps[rel_b + nocc];
+            double numerator = iajb_slice[block_start + rel_a * ncols + rel_b];
+            pair_amplitudes_slice[block_start + rel_a * ncols + rel_b] = numerator * (fabs(denominator) < 1e-20 ? 1e20 : 1.0 / denominator);
+        }
+    }
     '''
 
     def __init__(self, device_id=0, threads_per_block=256, gpu_arch=None):
@@ -112,6 +154,8 @@ class MP2KernelHelper:
         self._func_make_pair_amplitudes = None
         self._func_general_transpose = None
         self._func_pair_amplitudes_batched = None
+        self._func_sliced_transpose = None
+        self._func_pair_amplitudes_sliced = None
 
         self._init_cuda()
 
@@ -226,7 +270,15 @@ class MP2KernelHelper:
         self._func_pair_amplitudes_batched = self._check_driver(
             driver.cuModuleGetFunction(self._module, b"pair_amplitudes_batched")
         )
-        
+
+        self._func_sliced_transpose = self._check_driver(
+            driver.cuModuleGetFunction(self._module, b"sliced_transpose")
+        )
+
+        self._func_pair_amplitudes_sliced = self._check_driver(
+            driver.cuModuleGetFunction(self._module, b"pair_amplitudes_sliced")
+        )
+
         nvrtc.nvrtcDestroyProgram(prog)
 
     def close(self):
@@ -388,6 +440,64 @@ class MP2KernelHelper:
         self._check_driver(
             driver.cuLaunchKernel(
                 self._func_pair_amplitudes_batched,
+                blocks_x, blocks_y, int(batch_size),
+                block_xy, block_xy, 1,
+                0,
+                self._as_stream(stream),
+                params,
+                0,
+            )
+        )
+        if synchronize:
+            self._check_driver(driver.cuCtxSynchronize())
+
+    def sliced_transpose(self, *, input_ptr, output_ptr, nocc, nvir, batch_size, stream=0, synchronize=False):
+        nocc_arg = self._as_count(nocc)
+        nvir_arg = self._as_count(nvir)
+        input_arg = self._as_device_ptr(input_ptr)
+        output_arg = self._as_device_ptr(output_ptr)
+
+        _, params = self._kernel_params(
+            input_arg, output_arg, nocc_arg, nvir_arg
+        )
+
+        block_xy = min(32, self.threads_per_block)
+        blocks_x = (nvir_arg.value + block_xy - 1) // block_xy
+        blocks_y = (nvir_arg.value + block_xy - 1) // block_xy
+
+        self._check_driver(
+            driver.cuLaunchKernel(
+                self._func_sliced_transpose,
+                blocks_x, blocks_y, int(batch_size),
+                block_xy, block_xy, 1,
+                0,
+                self._as_stream(stream),
+                params,
+                0,
+            )
+        )
+        if synchronize:
+            self._check_driver(driver.cuCtxSynchronize())
+
+    def pair_amplitudes_sliced(self, *, i_start, nocc, nvir, batch_size, iajb_slice_ptr, eps_ptr, pair_amplitudes_slice_ptr, stream=0, synchronize=False):
+        i_arg = self._as_count(i_start)
+        nocc_arg = self._as_count(nocc)
+        nvir_arg = self._as_count(nvir)
+        eps_arg = self._as_device_ptr(eps_ptr)
+        iajb_arg = self._as_device_ptr(iajb_slice_ptr)
+        pair_amplitudes_arg = self._as_device_ptr(pair_amplitudes_slice_ptr)
+
+        _, params = self._kernel_params(
+            i_arg, nocc_arg, nvir_arg, iajb_arg, eps_arg, pair_amplitudes_arg
+        )
+
+        block_xy = min(32, self.threads_per_block)
+        blocks_x = (nvir_arg.value + block_xy - 1) // block_xy
+        blocks_y = (nvir_arg.value + block_xy - 1) // block_xy
+
+        self._check_driver(
+            driver.cuLaunchKernel(
+                self._func_pair_amplitudes_sliced,
                 blocks_x, blocks_y, int(batch_size),
                 block_xy, block_xy, 1,
                 0,

@@ -348,6 +348,115 @@ def compute_mp2_energy_batched(
     return mp2_os_energy, mp2_ss_energy
 
 
+# => One-shot: sliced GEMM loop from test-one-shot.py <= #
+
+
+def compute_mp2_energy_one_shot(
+    *,
+    rhf : cuest_scf.RHF,
+    B_ia : cuest_scf.GPUMatrix,
+    naux : int,
+    ):
+
+    eps = rhf.tensors['eps']
+    nocc = rhf.sizes['nocc']
+    nvir = rhf.sizes['nvir']
+
+    nvir2 = nvir * nvir
+
+    free, total = kernel_helper.get_mem_info()
+
+    slices_possible = int((free * 0.8) // 3) // (8 * nvir2 * nocc)
+    slice_count = slices_possible if slices_possible < nocc else nocc
+    if slice_count == 0:
+        raise ValueError(f"Insufficient device memory for {3 * 8 * nvir2 * nocc / 1024**3:.2f} GiB scratch buffer")
+
+    print(f"free GPU memory: {free / 1024**3:.2f} GiB")
+    print(f"Performing (A|ia)(A|jb) in {slice_count} slice(s)")
+
+    size_in_bytes = 8 * nvir2 * nocc * slice_count
+    iajb_ptr = CudaUtility.cuda_malloc(size_in_bytes)
+    ibja_ptr = CudaUtility.cuda_malloc(size_in_bytes)
+    pair_amplitudes_ptr = CudaUtility.cuda_malloc(size_in_bytes)
+
+    stride = (nocc + slice_count - 1) // slice_count
+
+    mp2_os_energy = 0.0
+    mp2_ss_energy = 0.0
+    for i in range(stride):
+
+        iter_slices = min(slice_count, nocc - i * slice_count)
+
+        cuest_scf.GPUMatrixUtility.c_dgemm(
+            transa=True,
+            transb=False,
+            m=iter_slices*nvir,
+            n=nocc*nvir,
+            k=naux,
+            alpha=1.0,
+            a=B_ia.pointer,
+            offa=i*slice_count*nvir,
+            lda=nocc*nvir,
+            b=B_ia.pointer,
+            offb=0,
+            ldb=nocc*nvir,
+            beta=0.0,
+            c=iajb_ptr,
+            offc=0,
+            ldc=nocc*nvir,
+            raw_ptr=1,
+            )
+
+        kernel_helper.pair_amplitudes_sliced(
+            i_start=i*slice_count,
+            nocc=nocc,
+            nvir=nvir,
+            batch_size=iter_slices*nocc,
+            iajb_slice_ptr=iajb_ptr,
+            eps_ptr=eps.pointer,
+            pair_amplitudes_slice_ptr=pair_amplitudes_ptr,
+            )
+
+        kernel_helper.sliced_transpose(
+            input_ptr=iajb_ptr,
+            output_ptr=ibja_ptr,
+            nocc=nocc,
+            nvir=nvir,
+            batch_size=iter_slices*nocc,
+            )
+
+        iajb_term = cuest_scf.GPUMatrixUtility.ddot(
+            n=iter_slices*nvir*nocc*nvir,
+            x=iajb_ptr,
+            offx=0,
+            incx=1,
+            y=pair_amplitudes_ptr,
+            offy=0,
+            incy=1,
+            raw_ptr=1,
+        )
+
+        ibja_term = cuest_scf.GPUMatrixUtility.ddot(
+            n=iter_slices*nvir*nocc*nvir,
+            x=ibja_ptr,
+            offx=0,
+            incx=1,
+            y=pair_amplitudes_ptr,
+            offy=0,
+            incy=1,
+            raw_ptr=1,
+        )
+
+        mp2_os_energy += iajb_term
+        mp2_ss_energy += iajb_term - ibja_term
+
+    CudaUtility.cuda_free(pointer=iajb_ptr)
+    CudaUtility.cuda_free(pointer=ibja_ptr)
+    CudaUtility.cuda_free(pointer=pair_amplitudes_ptr)
+
+    return mp2_os_energy, mp2_ss_energy
+
+
 # => Comparison <= #
 
 B_ia = compute_B_ia(
@@ -361,10 +470,15 @@ naux = ri_auxiliary.nao
 
 ref_os_energy, ref_ss_energy = compute_mp2_energy_reference(rhf=rhf, B_ia=B_ia, naux=naux)
 bat_os_energy, bat_ss_energy = compute_mp2_energy_batched(rhf=rhf, B_ia=B_ia, naux=naux)
+one_os_energy, one_ss_energy = compute_mp2_energy_one_shot(rhf=rhf, B_ia=B_ia, naux=naux)
 
 d_os = bat_os_energy - ref_os_energy
 d_ss = bat_ss_energy - ref_ss_energy
 d_corr = d_os + d_ss
+
+d_one_os = one_os_energy - ref_os_energy
+d_one_ss = one_ss_energy - ref_ss_energy
+d_one_corr = d_one_os + d_one_ss
 
 print()
 print(f'                        {"reference":>24s} {"batched":>24s} {"diff":>11s}')
@@ -372,9 +486,17 @@ print(f'MP2 OS Energy:          {ref_os_energy:24.16E} {bat_os_energy:24.16E} {d
 print(f'MP2 SS Energy:          {ref_ss_energy:24.16E} {bat_ss_energy:24.16E} {d_ss:11.3E}')
 print(f'MP2 Correlation Energy: {ref_os_energy + ref_ss_energy:24.16E} {bat_os_energy + bat_ss_energy:24.16E} {d_corr:11.3E}')
 
+print()
+print(f'                        {"reference":>24s} {"one-shot":>24s} {"diff":>11s}')
+print(f'MP2 OS Energy:          {ref_os_energy:24.16E} {one_os_energy:24.16E} {d_one_os:11.3E}')
+print(f'MP2 SS Energy:          {ref_ss_energy:24.16E} {one_ss_energy:24.16E} {d_one_ss:11.3E}')
+print(f'MP2 Correlation Energy: {ref_os_energy + ref_ss_energy:24.16E} {one_os_energy + one_ss_energy:24.16E} {d_one_corr:11.3E}')
+
 # Same orbitals and B_ia: only summation order differs
 assert abs(d_os) < 1.0e-10
 assert abs(d_ss) < 1.0e-10
+assert abs(d_one_os) < 1.0e-10
+assert abs(d_one_ss) < 1.0e-10
 
 # Psi4 reference values
 assert abs(bat_os_energy - -0.3739405675166669) < 1.0e-6

@@ -300,3 +300,45 @@ print(f'MP2 Energy:             {rhf.compute_energy() + mp2_os_energy + mp2_ss_e
 # Psi4 reference values
 assert abs(mp2_os_energy - -0.3739405675166669) < 1.0e-6
 assert abs(mp2_ss_energy - -0.1145863947025172) < 1.0e-6
+
+# water 64, 192 atoms:
+
+# => MP2 Energy Calculation <=
+
+# MP2 Timing breakdown:
+# key                            count time [ms]
+# mp2_total                          1   4.938E+01
+# mo_integrals                       1   1.968E+00
+# scratch_alloc                      1   4.076E-03
+# gemm                           51360   1.566E+01
+# transpose                      51360   2.150E+01  # very slow
+# pair_amplitudes                51360   3.653E+00  # slow due to kernel launch overhead
+# ddot                           51360   3.756E+00  # slight overhead here too maybe?
+
+# MP2 OS Energy:           -9.8796189240555066E+00
+
+# MP2 SS Energy:           -3.4256589252203695E+00
+# MP2 Correlation Energy:  -1.3305277849275877E+01
+
+# MP2 Energy:              -4.8754950845084131E+03
+
+# => MP2 Energy Calculation <=
+
+# free GPU memory: 41.38 GiB
+# batching 320/320 total inner-loop DGEMMs
+# MP2 Timing breakdown:
+# key                            count time [ms]
+# mp2_total                          1   3.641E+01
+# mo_integrals                       1   1.973E+00
+# scratch_alloc                      1   5.192E-03
+# gemm                             320   2.865E+01
+# transpose                        320   1.244E+00  # much faster than above, why?
+# pair_amplitudes                  320   2.909E+00  # pretty good, but try dynamic grid sizing
+# ddot                             320   1.587E+00
+
+# MP2 OS Energy:           -9.8796189240933483E+00
+
+# MP2 SS Energy:           -3.4256589252708980E+00
+# MP2 Correlation Energy:  -1.3305277849364247E+01
+
+# MP2 Energy:              -4.8754950845068997E+03
