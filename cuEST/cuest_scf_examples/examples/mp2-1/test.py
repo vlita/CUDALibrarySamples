@@ -35,7 +35,13 @@ from kernel_helper import MP2KernelHelper
 
 kernel_helper = MP2KernelHelper()
 
-enable_part_timers = True
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('--geometry', default='ethanol.xyz')
+parser.add_argument('--part-timers', action=argparse.BooleanOptionalAction, default=True)
+args = parser.parse_args()
+
+enable_part_timers = args.part_timers
 
 timer = cuest_scf.timer.Timer()
 
@@ -57,7 +63,7 @@ cuest_handle = cuest_scf.CuestHandle()
 
 threshold_pq = 1.0E-18
 
-molecule = cuest_scf.Molecule.parse_from_xyz_file('water64.xyz')
+molecule = cuest_scf.Molecule.parse_from_xyz_file(args.geometry)
 charge = 0
 
 primary_name = 'def2-svp'
@@ -147,6 +153,9 @@ def compute_mp2_energy(
 
     stop_part_timer('mo_integrals', stream_handle=rhf.cuest_handle.stream_handle)
 
+    free, total = kernel_helper.get_mem_info()
+    print(f'MEM after 3c integral transform: free {free / 1024**3:.2f} / {total / 1024**3:.2f} GiB', flush=True)
+
     # => per-pair scratch space <= #
 
     start_part_timer('scratch_alloc')
@@ -163,6 +172,9 @@ def compute_mp2_energy(
         )
 
     stop_part_timer('scratch_alloc')
+
+    free, total = kernel_helper.get_mem_info()
+    print(f'MEM after scratch allocation:    free {free / 1024**3:.2f} / {total / 1024**3:.2f} GiB', flush=True)
 
     mp2_os_energy = 0.0
     mp2_ss_energy = 0.0
@@ -254,6 +266,9 @@ def compute_mp2_energy(
             mp2_os_energy += pair_prefactor * iajb_term
             mp2_ss_energy += pair_prefactor * (iajb_term - ibja_term)
 
+    free, total = kernel_helper.get_mem_info()
+    print(f'MEM after MP2 energy loop:       free {free / 1024**3:.2f} / {total / 1024**3:.2f} GiB', flush=True)
+
     return mp2_os_energy, mp2_ss_energy
 
 
@@ -278,5 +293,6 @@ print()
 print(f'MP2 Energy:             {rhf.compute_energy() + mp2_os_energy + mp2_ss_energy:24.16E}')
 
 # Psi4 reference values
-assert abs(mp2_os_energy - -0.3739405675166669) < 1.0e-6
-assert abs(mp2_ss_energy - -0.1145863947025172) < 1.0e-6
+if os.path.basename(args.geometry) == 'ethanol.xyz':
+    assert abs(mp2_os_energy - -0.3739405675166669) < 1.0e-6
+    assert abs(mp2_ss_energy - -0.1145863947025172) < 1.0e-6
