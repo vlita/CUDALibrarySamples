@@ -121,17 +121,21 @@ class GPUMatrixUtility(object):
             
             assert offx + (n - 1) * incx < x.size
             assert offy + (n - 1) * incy < y.size
-    
-        cublas.ddot(
-            handle=cublas_handle,
-            n=n,
-            x=x_arg + offx * ctypes.sizeof(ctypes.c_double),
-            incx=incx,
-            y=y_arg + offy * ctypes.sizeof(ctypes.c_double),
-            incy=incy,
-            result=result.ctypes.data,
-            )
-        return result[0]
+
+        max_n = 2**31 - 1
+        total = 0.0
+        for start in range(0, n, max_n):
+            cublas.ddot(
+                handle=cublas_handle,
+                n=min(max_n, n - start),
+                x=x_arg + (offx + start * incx) * ctypes.sizeof(ctypes.c_double),
+                incx=incx,
+                y=y_arg + (offy + start * incy) * ctypes.sizeof(ctypes.c_double),
+                incy=incy,
+                result=result.ctypes.data,
+                )
+            total += result[0]
+        return total
 
 
     @staticmethod

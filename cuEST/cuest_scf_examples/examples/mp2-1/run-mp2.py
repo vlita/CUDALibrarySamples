@@ -1,5 +1,6 @@
 import argparse
 import os
+import re
 import subprocess
 import sys
 import time
@@ -12,7 +13,7 @@ parser.add_argument('--output-dir', default='mp2-runs')
 args = parser.parse_args()
 
 filedir = os.path.dirname(os.path.realpath(__file__))
-geometries = sorted(f for f in os.listdir(args.geometry_dir) if f.endswith('.xyz'))
+geometries = sorted((f for f in os.listdir(args.geometry_dir) if f.endswith('.xyz')), key=lambda f: [int(t) if t.isdigit() else t for t in re.split(r'(\d+)', f)])
 os.makedirs(args.output_dir, exist_ok=True)
 
 env = dict(os.environ, PYTHONUNBUFFERED='1')
