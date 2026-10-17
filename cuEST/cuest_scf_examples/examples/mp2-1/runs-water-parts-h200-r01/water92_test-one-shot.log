@@ -1,0 +1,172 @@
+==> cuEST RHF (Python) <==
+
+natom  =  276
+charge =    0
+
+Primary Basis: def2-svp
+
+AOBasis:
+natom      =    276
+nshell     =   1104
+nao        =   2208
+ncart      =   2300
+nprimitive =   2024
+max_L      =      2
+is_pure    =   True
+is_cart    =  False
+is_mixed   =  False
+
+Auxiliary Basis: def2-universal-jkfit
+
+AOBasis:
+natom      =    276
+nshell     =   3404
+nao        =  10396
+ncart      =  12236
+nprimitive =   4508
+max_L      =      4
+is_pure    =   True
+is_cart    =  False
+is_mixed   =  False
+
+MinAO Basis: minao-1
+
+AOBasis:
+natom      =    276
+nshell     =    460
+nao        =    644
+ncart      =    644
+nprimitive =   4048
+max_L      =      1
+is_pure    =   True
+is_cart    =  False
+is_mixed   =  False
+
+XCIntPlan:
+
+XCIntPlan Density Functional:
+
+XC brief   =      Hartree-Fock
+citation   =      J. C. Slater, Phys. Rev., 81, 385 (1951)
+functional =      HF
+hf scale   =      1.000
+lrc scale  =      0.000
+vv10 scale =      0.000
+
+XC Grid:
+
+MolecularGrid:
+scheme name        =      GRID2
+natom              =        276
+atomic max npoint  =       3300
+radial max npoint  =         30
+angular max npoint =        194
+total npoint       =     624128
+
+Nonlocal XC Grid:
+
+MolecularGrid:
+scheme name        =      GRID1
+natom              =        276
+atomic max npoint  =       1742
+radial max npoint  =         25
+angular max npoint =        110
+total npoint       =     304520
+
+SAD Guess:
+
+Orthogonalization:
+
+threshold_canonical =   1.000E-06
+nao                 =        2208
+nmo                 =        2208
+ndiscard            =           0
+
+Occupations:
+
+nocc  =   460
+nvir  =  1748
+
+DFIntPlan Initialize Time:   4.522E+00 [s]
+
+=> Solve DIIS <=
+
+threshold_pq =   1.000E-18
+
+Enuc =   2.9050044867422963E+04
+
+DIIS:
+max nvector =           6
+
+Convergence Options:
+max iterations =         100
+g convergence  =   1.000E-06
+
+Iter:                   Energy          dE          dG  Time[s]
+0   :  -6.9445945697380139E+03  -6.945E+03   8.377E-01    1.931 ( 5 moduli,  6 slices)
+1   :  -6.9862688366087841E+03  -4.167E+01   5.017E-02    1.313 ( 5 moduli,  6 slices)
+2   :  -6.9887912660861566E+03  -2.522E+00   3.474E-02    1.403 ( 6 moduli,  6 slices)
+3   :  -6.9894171696622470E+03  -6.259E-01   3.558E-03    1.402 ( 6 moduli,  6 slices)
+4   :  -6.9894411532871436E+03  -2.398E-02   1.509E-03    1.541 ( 7 moduli,  6 slices)
+5   :  -6.9894425798395268E+03  -1.427E-03   2.622E-04    1.542 ( 7 moduli,  6 slices)
+6   :  -6.9894426759390881E+03  -9.610E-05   1.311E-04    1.560 ( 7 moduli,  6 slices)
+7   :  -6.9894426911030769E+03  -1.516E-05   1.354E-05    1.614 ( 8 moduli,  6 slices)
+8   :  -6.9894426919501693E+03  -8.471E-07   5.106E-06    1.620 ( 8 moduli,  6 slices)
+9   :  -6.9894426919723774E+03  -2.221E-08   1.478E-06    1.721 ( 9 moduli,  6 slices)
+10  :  -6.9894426919746193E+03  -2.242E-09   5.267E-07    1.724 ( 9 moduli,  6 slices)
+SCF Converged
+
+SCF Energy =  -6.9894426919746193E+03
+
+=> End Solve DIIS <=
+
+cuEST RHF Time:   2.266E+01 [s]
+
+cuEST RHF Timing breakdown:
+key                            count time [ms]  
+solve                              1   2.266E+01
+primary_basis                      1   4.208E-03
+auxiliary_basis                    1   1.076E-02
+xc_grid                            1   7.534E-02
+nlc_grid                           1   4.119E-02
+ao_pair_list                       1   1.793E-01
+oe_int_plan                        1   1.304E-02
+xc_int_plan                        1   3.484E-02
+df_int_plan                        1   4.522E+00
+nlc_int_plan                       1   4.364E-02
+pcm_int_plan                       1   8.704E-06
+orthogonalize                      1   7.275E-02
+S                                  1   1.966E-03
+PCM                               12   4.704E-05
+T                                  1   1.349E-03
+V                                  1   6.887E-03
+J                                 11   2.943E-01
+K                                 11   1.638E+01
+Vxc                               11   6.224E-05
+VV10                              11   9.952E-05
+diagonalize                       10   3.224E-01
+
+==> End cuEST RHF (Python) <==
+
+RHF Energy:              -6.9894426919746193E+03
+MEM after 3c integral transform: free 43.41 / 139.84 GiB
+free GPU memory: 43.41 GiB
+Performing (A|ia)(A|jb) in 1 slice(s)
+MEM after scratch allocation:    free 11.99 / 139.84 GiB
+MEM after MP2 energy loop:       free 11.99 / 139.84 GiB
+MP2 Timing breakdown:
+key                            count time [ms]  
+mp2_total                          1   1.993E+02
+mo_integrals                       1   7.971E+00
+scratch_alloc                      1   8.552E-02
+gemm                             460   1.678E+02
+pair_amplitudes                  460   1.351E+01
+transpose                        460   5.208E+00
+ddot                             460   4.652E+00
+
+MP2 OS Energy:           -1.4218610655057873E+01
+
+MP2 SS Energy:           -4.9405970483364063E+00
+MP2 Correlation Energy:  -1.9159207703394280E+01
+
+MP2 Energy:              -7.0086018996780140E+03
