@@ -1,0 +1,180 @@
+==> cuEST RHF (Python) <==
+
+natom  =  240
+charge =    0
+
+Primary Basis: def2-svp
+
+AOBasis:
+natom      =    240
+nshell     =    960
+nao        =   1920
+ncart      =   2000
+nprimitive =   1760
+max_L      =      2
+is_pure    =   True
+is_cart    =  False
+is_mixed   =  False
+
+Auxiliary Basis: def2-universal-jkfit
+
+AOBasis:
+natom      =    240
+nshell     =   2960
+nao        =   9040
+ncart      =  10640
+nprimitive =   3920
+max_L      =      4
+is_pure    =   True
+is_cart    =  False
+is_mixed   =  False
+
+MinAO Basis: minao-1
+
+AOBasis:
+natom      =    240
+nshell     =    400
+nao        =    560
+ncart      =    560
+nprimitive =   3520
+max_L      =      1
+is_pure    =   True
+is_cart    =  False
+is_mixed   =  False
+
+XCIntPlan:
+
+XCIntPlan Density Functional:
+
+XC brief   =      Hartree-Fock
+citation   =      J. C. Slater, Phys. Rev., 81, 385 (1951)
+functional =      HF
+hf scale   =      1.000
+lrc scale  =      0.000
+vv10 scale =      0.000
+
+XC Grid:
+
+MolecularGrid:
+scheme name        =      GRID2
+natom              =        240
+atomic max npoint  =       3300
+radial max npoint  =         30
+angular max npoint =        194
+total npoint       =     542720
+
+Nonlocal XC Grid:
+
+MolecularGrid:
+scheme name        =      GRID1
+natom              =        240
+atomic max npoint  =       1742
+radial max npoint  =         25
+angular max npoint =        110
+total npoint       =     264800
+
+SAD Guess:
+
+Orthogonalization:
+
+threshold_canonical =   1.000E-06
+nao                 =        1920
+nmo                 =        1920
+ndiscard            =           0
+
+Occupations:
+
+nocc  =   400
+nvir  =  1520
+
+DFIntPlan Initialize Time:   7.340E+00 [s]
+
+=> Solve DIIS <=
+
+threshold_pq =   1.000E-18
+
+Enuc =   2.2891928509118934E+04
+
+DIIS:
+max nvector =           6
+
+Convergence Options:
+max iterations =         100
+g convergence  =   1.000E-06
+
+Iter:                   Energy          dE          dG  Time[s]
+0   :  -6.0384748770167298E+03  -6.038E+03   8.325E-01    2.792 ( 5 moduli,  6 slices)
+1   :  -6.0749676486597727E+03  -3.649E+01   5.681E-02    2.395 ( 5 moduli,  6 slices)
+2   :  -6.0771783103605212E+03  -2.211E+00   2.640E-02    2.396 ( 6 moduli,  6 slices)
+3   :  -6.0777330760560335E+03  -5.548E-01   3.908E-03    2.400 ( 6 moduli,  6 slices)
+4   :  -6.0777539941966006E+03  -2.092E-02   9.847E-04    2.402 ( 7 moduli,  6 slices)
+5   :  -6.0777552512040074E+03  -1.257E-03   2.186E-04    2.405 ( 7 moduli,  6 slices)
+6   :  -6.0777553342872252E+03  -8.308E-05   1.078E-04    2.400 ( 7 moduli,  6 slices)
+7   :  -6.0777553476653266E+03  -1.338E-05   1.514E-05    2.410 ( 8 moduli,  6 slices)
+8   :  -6.0777553483972415E+03  -7.319E-07   4.133E-06    2.403 ( 8 moduli,  6 slices)
+9   :  -6.0777553484264681E+03  -2.923E-08   1.671E-06    2.403 ( 9 moduli,  6 slices)
+10  :  -6.0777553484296022E+03  -3.134E-09   3.619E-07    2.399 ( 9 moduli,  6 slices)
+SCF Converged
+
+SCF Energy =  -6.0777553484296022E+03
+
+=> End Solve DIIS <=
+
+cuEST RHF Time:   3.489E+01 [s]
+
+cuEST RHF Timing breakdown:
+key                            count time [ms]  
+solve                              1   3.489E+01
+primary_basis                      1   3.248E-03
+auxiliary_basis                    1   9.031E-03
+xc_grid                            1   1.198E-01
+nlc_grid                           1   6.250E-02
+ao_pair_list                       1   1.287E-01
+oe_int_plan                        1   2.383E-02
+xc_int_plan                        1   4.539E-02
+df_int_plan                        1   7.340E+00
+nlc_int_plan                       1   3.536E-02
+pcm_int_plan                       1   6.112E-06
+orthogonalize                      1   7.687E-02
+S                                  1   2.384E-03
+PCM                               12   5.210E-05
+T                                  1   1.995E-03
+V                                  1   8.197E-03
+J                                 11   6.244E-01
+K                                 11   2.550E+01
+Vxc                               11   4.710E-05
+VV10                              11   7.885E-05
+diagonalize                       10   4.208E-01
+
+==> End cuEST RHF (Python) <==
+
+RHF Energy:              -6.0777553484296022E+03
+Traceback (most recent call last):
+  File "/storage/project/r-cs207-0/vlita3/cuest/CUDALibrarySamples/cuEST/cuest_scf_examples/examples/mp2-1/test-one-shot.py", line 291, in <module>
+    mp2_os_energy, mp2_ss_energy = compute_mp2_energy(
+                                   ~~~~~~~~~~~~~~~~~~^
+        rhf=rhf,
+        ^^^^^^^^
+    ...<2 lines>...
+        integral_direct=True,
+        ^^^^^^^^^^^^^^^^^^^^^
+        )
+        ^
+  File "/storage/project/r-cs207-0/vlita3/cuest/CUDALibrarySamples/cuEST/cuest_scf_examples/examples/mp2-1/test-one-shot.py", line 148, in compute_mp2_energy
+    mo_integral_helper.compute_3c_integral(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        C=C,
+        ^^^^
+    ...<4 lines>...
+        out_mo_integrals=B_ia,
+        ^^^^^^^^^^^^^^^^^^^^^^
+        )
+        ^
+  File "/storage/project/r-cs207-0/vlita3/cuest/CUDALibrarySamples/cuEST/cuest_scf_examples/examples/mp2-1/cuest_mo_int_helper.py", line 138, in compute_3c_integral
+    temporary_workspace = CuestWorkspace(workspaceDescriptor=temporary_workspace_descriptor)
+  File "/storage/project/r-cs207-0/vlita3/cuest/CUDALibrarySamples/cuEST/cuest_scf_examples/cuest_scf/cuest_workspace.py", line 51, in __init__
+    self.struct['deviceBuffer'] = CudaUtility.cuda_malloc(size_in_bytes=deviceBufferSizeInBytes)
+                                  ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/storage/project/r-cs207-0/vlita3/cuest/CUDALibrarySamples/cuEST/cuest_scf_examples/cuest_scf/cuda_utility.py", line 26, in cuda_malloc
+    raise RuntimeError("Unable to allocate CUDA array:", ret)
+RuntimeError: ('Unable to allocate CUDA array:', <cudaError_t.cudaErrorMemoryAllocation: 2>)
